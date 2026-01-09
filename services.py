@@ -70,6 +70,39 @@ def _has_owned_parking(state: Dict, airport: str) -> bool:
 	return spot_count > 0 or hangar_count > 0
 
 
+def has_owned_parking_at_airport(airport: str) -> bool:
+	"""Check if the company owns parking or hangars at the given airport.
+	
+	Args:
+		airport: Airport code (e.g., "HOME", "JFK")
+	
+	Returns:
+		True if company owns at least one parking spot or hangar at the airport
+	"""
+	state = get_state()
+	return _has_owned_parking(state, airport)
+
+
+def has_hangar_at_airport(airport: str) -> bool:
+	"""Check if the company owns at least one hangar at the given airport.
+	
+	Args:
+		airport: Airport code (e.g., "HOME", "JFK")
+	
+	Returns:
+		True if company owns at least one hangar at the airport
+	"""
+	state = get_state()
+	parking = state.get("parking", {})
+	info = parking.get(airport.upper(), {})
+	hangars = info.get("hangars", 0)
+	if isinstance(hangars, list):
+		hangar_count = len(hangars)
+	else:
+		hangar_count = int(hangars)
+	return hangar_count > 0
+
+
 def _has_available_parking(state: Dict, airport: str) -> bool:
 	# HOME airport has unlimited parking (home base)
 	if airport.upper() == "HOME":
@@ -338,6 +371,7 @@ def lease_aircraft(type_code: str, name: str, monthly_payment: int, term_months:
 		aircraft["oil_capacity"] = oil_capacity
 		aircraft["oil_minimum"] = oil_minimum
 		aircraft["hours_since_oil_refill"] = 0.0
+		aircraft["hours_since_oil_change"] = 0.0  # Track full oil changes separately
 	
 	lease = {
 		"lease_id": _new_id("lease"),
@@ -490,6 +524,7 @@ def buy_aircraft(type_code: str, name: str, price: int, listing_id: str = None, 
 		aircraft["oil_capacity"] = oil_capacity
 		aircraft["oil_minimum"] = oil_minimum
 		aircraft["hours_since_oil_refill"] = 0.0
+		aircraft["hours_since_oil_change"] = 0.0  # Track full oil changes separately
 	
 	# If buying from marketplace, remove listing
 	if listing_id:
@@ -602,6 +637,8 @@ def perform_maintenance_level(aircraft_id: str, level: str) -> None:
 			oil_capacity = float(aircraft.get("oil_capacity", 32.0))
 			aircraft["oil_level"] = oil_capacity
 			aircraft["hours_since_oil_refill"] = 0.0
+			aircraft["hours_since_oil_change"] = 0.0  # C check includes full oil change
+			aircraft["hours_since_oil_change"] = 0.0  # C check includes full oil change
 		# Airliners don't need oil refills (managed automatically)
 	
 	state["cash"] = cash - cost
@@ -988,18 +1025,40 @@ def run_daily_tick() -> int:
 	state["last_daily_tick_day"] = today
 	
 	# Process parking fees
-	PARKING_FEE_PER_DAY = 30  # Daily parking fee per aircraft when no owned parking
+	import random
+	from seat_types import calculate_cabin_total_seats
+	
 	for ac in state.get("fleet", []):
 		loc = (ac.get("location") or "HOME").upper()
 		last_day = int(ac.get("last_penalty_day", 0))
 		if last_day == today:
 			continue
 		if not _has_owned_parking(state, loc):
-			amount = PARKING_FEE_PER_DAY
-			state["cash"] = int(state.get("cash", 0)) - amount
-			ac["last_penalty_day"] = today
-			_add_ledger(state, "parking_fee", -amount, f"Overnight parking fee at {loc}")
-			penalties += 1
+			# Get aircraft capacity
+			layout = ac.get("cabin_layout", [])
+			capacity = calculate_cabin_total_seats(layout) if layout else 0
+			if capacity == 0:
+				# Fallback to catalog capacity if no layout
+				from catalog import aircraft_catalog
+				cat = {c["type_code"]: c for c in aircraft_catalog()}
+				info = cat.get(ac.get("type_code"))
+				capacity = int(info.get("capacity", 0)) if info else 0
+			
+			# Large aircraft (>19 seats) cannot park at airports without owned parking
+			if capacity > 19:
+				# Apply $5,000 fine for parking large aircraft without owned parking
+				fine_amount = 5000
+				state["cash"] = int(state.get("cash", 0)) - fine_amount
+				ac["last_penalty_day"] = today
+				_add_ledger(state, "parking_fine", -fine_amount, f"Parking violation: Aircraft with {capacity} seats parked at {loc} without owned parking/hangar")
+				penalties += 1
+			else:
+				# Small aircraft (<=19 seats) pay realistic parking fees: $15-$30 per night
+				amount = random.randint(15, 30)
+				state["cash"] = int(state.get("cash", 0)) - amount
+				ac["last_penalty_day"] = today
+				_add_ledger(state, "parking_fee", -amount, f"Overnight parking fee at {loc}")
+				penalties += 1
 	
 	# Process lease payments
 	leases = state.get("leases", [])
@@ -1454,6 +1513,187 @@ def get_aircraft_services(aircraft_id: str) -> Dict[str, Any]:
 	if not aircraft:
 		return {}
 	return aircraft.get("last_services", {})
+
+
+def purchase_custom_item(airport: str, item_name: str, cost: int) -> str:
+	"""Purchase a custom item and store it at an airport.
+	
+	Args:
+		airport: Airport code where the item will be stored
+		item_name: Name of the custom item
+		cost: Cost of the custom item
+	
+	Returns:
+		The item ID of the purchased item
+	"""
+	if not airport or not airport.strip():
+		raise ValueError("Airport code required")
+	if not item_name or not item_name.strip():
+		raise ValueError("Item name required")
+	if cost <= 0:
+		raise ValueError("Cost must be greater than 0")
+	
+	state = get_state()
+	
+	# Check if company has a hangar at the airport
+	if not has_hangar_at_airport(airport.upper()):
+		raise ValueError(f"No hangar owned at {airport}. You must own a hangar to store custom items.")
+	
+	# Check if player has enough cash
+	if cost > state.get("cash", 0):
+		raise ValueError(f"Insufficient cash. Need ${cost:,} for {item_name}.")
+	
+	# Create custom item
+	item_id = _new_id("custom_item")
+	custom_item = {
+		"item_id": item_id,
+		"name": item_name.strip(),
+		"cost": int(cost),
+		"airport": airport.upper(),
+		"purchase_date": _day_now(),
+		"purchase_timestamp": _now_ts(),
+		"installed_on": None,  # Aircraft ID if installed, None if stored
+	}
+	
+	# Store in state
+	custom_items = state.setdefault("custom_items", [])
+	custom_items.append(custom_item)
+	
+	# Deduct cost
+	state["cash"] = int(state.get("cash", 0)) - cost
+	_add_ledger(state, "custom_item", -cost, f"Custom item '{item_name}' purchased and stored at {airport.upper()}")
+	
+	save_state(state)
+	return item_id
+
+
+def list_stored_custom_items(airport: str = None) -> List[Dict[str, Any]]:
+	"""List custom items stored at airports (not installed on aircraft).
+	
+	Args:
+		airport: Optional airport code to filter by. If None, returns all stored items.
+	
+	Returns:
+		List of custom item dictionaries
+	"""
+	state = get_state()
+	custom_items = state.get("custom_items", [])
+	
+	# Filter to only stored items (not installed)
+	stored_items = [item for item in custom_items if item.get("installed_on") is None]
+	
+	# Filter by airport if specified
+	if airport:
+		airport_upper = airport.upper()
+		stored_items = [item for item in stored_items if item.get("airport") == airport_upper]
+	
+	return stored_items
+
+
+def list_installed_custom_items(aircraft_id: str = None) -> List[Dict[str, Any]]:
+	"""List custom items installed on aircraft.
+	
+	Args:
+		aircraft_id: Optional aircraft ID to filter by. If None, returns all installed items.
+	
+	Returns:
+		List of custom item dictionaries
+	"""
+	state = get_state()
+	custom_items = state.get("custom_items", [])
+	
+	# Filter to only installed items
+	installed_items = [item for item in custom_items if item.get("installed_on") is not None]
+	
+	# Filter by aircraft if specified
+	if aircraft_id:
+		installed_items = [item for item in installed_items if item.get("installed_on") == aircraft_id]
+	
+	return installed_items
+
+
+def install_custom_item(item_id: str, aircraft_id: str) -> None:
+	"""Install a custom item on an aircraft.
+	
+	Args:
+		item_id: ID of the custom item to install
+		aircraft_id: ID of the aircraft to install the item on
+	
+	Raises:
+		ValueError: If item or aircraft not found, or if they're not at the same airport
+	"""
+	state = get_state()
+	
+	# Find the custom item
+	custom_items = state.get("custom_items", [])
+	item = next((i for i in custom_items if i.get("item_id") == item_id), None)
+	if not item:
+		raise ValueError("Custom item not found")
+	
+	# Check if item is already installed on another aircraft
+	installed_on = item.get("installed_on")
+	if installed_on:
+		if installed_on == aircraft_id:
+			raise ValueError(f"Item is already installed on this aircraft ({aircraft_id})")
+		else:
+			raise ValueError(f"Item is already installed on aircraft {installed_on}. Each custom item can only be installed on one aircraft at a time.")
+	
+	# Find the aircraft
+	aircraft = next((ac for ac in state.get("fleet", []) if ac.get("id") == aircraft_id), None)
+	if not aircraft:
+		raise ValueError("Aircraft not found")
+	
+	# Check if item and aircraft are at the same airport
+	item_airport = item.get("airport", "").upper()
+	aircraft_location = (aircraft.get("location") or "HOME").upper()
+	
+	if item_airport != aircraft_location:
+		raise ValueError(f"Item is stored at {item_airport} but aircraft is at {aircraft_location}. They must be at the same airport.")
+	
+	# Install the item
+	item["installed_on"] = aircraft_id
+	item["installed_date"] = _day_now()
+	item["installed_timestamp"] = _now_ts()
+	
+	# Track on aircraft
+	aircraft.setdefault("custom_items", []).append(item_id)
+	
+	save_state(state)
+
+
+def uninstall_custom_item(item_id: str) -> None:
+	"""Uninstall a custom item from an aircraft and return it to storage at the airport.
+	
+	Args:
+		item_id: ID of the custom item to uninstall
+	"""
+	state = get_state()
+	
+	# Find the custom item
+	custom_items = state.get("custom_items", [])
+	item = next((i for i in custom_items if i.get("item_id") == item_id), None)
+	if not item:
+		raise ValueError("Custom item not found")
+	
+	# Check if item is installed
+	aircraft_id = item.get("installed_on")
+	if not aircraft_id:
+		raise ValueError("Item is not installed on any aircraft")
+	
+	# Find the aircraft
+	aircraft = next((ac for ac in state.get("fleet", []) if ac.get("id") == aircraft_id), None)
+	if aircraft:
+		# Remove from aircraft's custom items list
+		aircraft_custom_items = aircraft.get("custom_items", [])
+		if item_id in aircraft_custom_items:
+			aircraft_custom_items.remove(item_id)
+	
+	# Uninstall the item
+	item["installed_on"] = None
+	item.pop("installed_date", None)
+	item.pop("installed_timestamp", None)
+	
+	save_state(state)
 
 
 def list_pilots() -> List[Dict[str, Any]]:
@@ -1929,24 +2169,33 @@ def walkaround_check(aircraft_id: str) -> Dict[str, Any]:
 		aircraft["oil_capacity"] = oil_info["capacity"]
 		aircraft["oil_minimum"] = oil_info["minimum"]
 		aircraft["hours_since_oil_refill"] = 0.0
+		aircraft["hours_since_oil_change"] = 0.0  # Track full oil changes separately
 	
 	# Get oil levels
 	oil_level = float(aircraft.get("oil_level", oil_info["capacity"]))
 	oil_capacity = float(aircraft.get("oil_capacity", oil_info["capacity"]))
 	oil_minimum = float(aircraft.get("oil_minimum", oil_info["minimum"]))
 	hours_since_oil = float(aircraft.get("hours_since_oil_refill", 0.0))
+	hours_since_oil_change = float(aircraft.get("hours_since_oil_change", 0.0))
 	
-	# Oil consumption: approximately 1-2% per flight hour (planes can fly ~30 days/month)
-	# Assuming 30 days = ~720 hours of operation, oil should last about that
-	# For simplicity, we'll say oil decreases by ~0.11 quarts per flight hour
-	# But we'll check based on hours since last refill
+	# Oil consumption: approximately 0.11 quarts per flight hour
+	# Planes typically need top-ups monthly (about 30 days = ~720 hours of operation)
+	# Calculate monthly consumption: capacity - minimum should last about a month
+	# For example, if capacity is 32 and minimum is 6, that's 26 quarts for ~720 hours
+	# So consumption rate is approximately 0.11 quarts per hour
 	oil_consumed = hours_since_oil * 0.11  # ~0.11 quarts per hour
 	current_oil = max(0.0, oil_capacity - oil_consumed)
 	aircraft["oil_level"] = current_oil
 	
 	# Check against minimum level and capacity
+	# Oil is low if below 50% of capacity, or if approaching minimum
 	oil_low = current_oil < (oil_capacity * 0.5)  # Below 50% of capacity is low
 	oil_critical = current_oil < oil_minimum  # Below minimum is critical
+	
+	# Check oil change status (should be done every 50 hours)
+	oil_change_interval = 50.0
+	oil_change_due = hours_since_oil_change >= oil_change_interval
+	oil_change_overdue = hours_since_oil_change > (oil_change_interval * 1.2)  # 20% over is overdue
 	
 	# Check for snags
 	# Snags can be discovered during walkaround
@@ -2147,6 +2396,10 @@ def walkaround_check(aircraft_id: str) -> Dict[str, Any]:
 		"oil_unit": "quarts",  # Always quarts for smaller planes
 		"oil_low": oil_low,
 		"oil_critical": oil_critical,
+		"hours_since_oil_change": hours_since_oil_change,
+		"oil_change_interval": oil_change_interval,
+		"oil_change_due": oil_change_due,
+		"oil_change_overdue": oil_change_overdue,
 		"tire_condition": tire_condition,
 		"tire_wear": tire_wear,
 	}
@@ -2206,7 +2459,8 @@ def preflight_check(aircraft_id: str, flight_hours: float = 0.0) -> Dict[str, An
 
 
 def refill_aircraft_oil(aircraft_id: str) -> None:
-	"""Refill aircraft oil to full capacity. Charges cost. Only works for smaller planes."""
+	"""Top up aircraft oil to full capacity. This is a regular top-up, not a full oil change.
+	Does NOT reset the oil change timer. Only works for smaller planes."""
 	state = get_state()
 	aircraft = next((ac for ac in state.get("fleet", []) if ac.get("id") == aircraft_id), None)
 	if not aircraft:
@@ -2230,8 +2484,37 @@ def refill_aircraft_oil(aircraft_id: str) -> None:
 	
 	aircraft["oil_level"] = oil_capacity
 	aircraft["hours_since_oil_refill"] = 0.0
+	# Note: hours_since_oil_change is NOT reset - this is just a top-up
 	state["cash"] = int(state.get("cash", 0)) - cost
-	_add_ledger(state, "oil", -cost, f"Oil refill {aircraft_id} ({oil_needed:.1f} quarts)")
+	_add_ledger(state, "oil", -cost, f"Oil top-up {aircraft_id} ({oil_needed:.1f} quarts)")
+	save_state(state)
+
+
+def change_aircraft_oil(aircraft_id: str) -> None:
+	"""Perform a full oil change. This resets the oil change timer and should be done every 50 hours.
+	More expensive than a regular top-up. Only works for smaller planes."""
+	state = get_state()
+	aircraft = next((ac for ac in state.get("fleet", []) if ac.get("id") == aircraft_id), None)
+	if not aircraft:
+		raise ValueError("Aircraft not found")
+	
+	# Check if this aircraft tracks oil
+	if "oil_level" not in aircraft or "oil_capacity" not in aircraft:
+		raise ValueError("This aircraft type does not require manual oil changes (airliners manage oil automatically).")
+	
+	oil_capacity = float(aircraft.get("oil_capacity", 32.0))
+	
+	# Full oil change cost: $100 per quart (more expensive than top-up)
+	# Includes cost of new oil and labor
+	cost = int(oil_capacity * 100)
+	if cost > state.get("cash", 0):
+		raise ValueError(f"Insufficient cash. Need ${cost:,} for full oil change.")
+	
+	aircraft["oil_level"] = oil_capacity
+	aircraft["hours_since_oil_refill"] = 0.0
+	aircraft["hours_since_oil_change"] = 0.0  # Reset oil change timer
+	state["cash"] = int(state.get("cash", 0)) - cost
+	_add_ledger(state, "oil", -cost, f"Full oil change {aircraft_id} ({oil_capacity:.1f} quarts)")
 	save_state(state)
 
 
@@ -2463,6 +2746,7 @@ def end_flight(flight_id: str, flight_quality_answers: Dict[str, Any] = None) ->
 	if "oil_level" in aircraft:
 		# Smaller plane - track oil consumption
 		aircraft["hours_since_oil_refill"] = float(aircraft.get("hours_since_oil_refill", 0.0)) + flight_hours
+		aircraft["hours_since_oil_change"] = float(aircraft.get("hours_since_oil_change", 0.0)) + flight_hours
 		oil_consumed = flight_hours * 0.11  # ~0.11 quarts per hour
 		current_oil = float(aircraft.get("oil_level", aircraft.get("oil_capacity", 32.0)))
 		aircraft["oil_level"] = max(0.0, current_oil - oil_consumed)
@@ -2470,6 +2754,22 @@ def end_flight(flight_id: str, flight_quality_answers: Dict[str, Any] = None) ->
 	
 	# Check for due/overdue maintenance
 	maintenance_warnings = []
+	
+	# Check oil change interval (50 hours for smaller planes)
+	if "oil_level" in aircraft:
+		hours_since_oil_change = float(aircraft.get("hours_since_oil_change", 0.0))
+		oil_change_interval = 50.0
+		if hours_since_oil_change > oil_change_interval:
+			overdue_factor = hours_since_oil_change / oil_change_interval
+			# If overdue and something goes wrong (snags, reliability issues), apply fine
+			has_snags = len(aircraft.get("snags", [])) > 0
+			reliability = float(aircraft.get("reliability", 1.0))
+			if has_snags or reliability < 0.9:
+				# Fine for overdue oil change when problems occur
+				fine = int(5000 * (overdue_factor - 1.0))
+				penalty += fine
+				penalty_reasons.append(f"Overdue oil change ({hours_since_oil_change:.0f}h / {oil_change_interval:.0f}h) - Fine: ${fine:,}")
+				aircraft["reliability"] = max(0.0, reliability - 0.01 * (overdue_factor - 1.0))
 	
 	# Check A Check
 	a_hours = aircraft["hours_since_a_check"]
@@ -2715,14 +3015,9 @@ def get_fuel_price_multiplier() -> float:
 	return float(state.get("fuel_price_multiplier", 1.0))
 
 
-def check_and_award_achievements() -> List[Dict[str, Any]]:
-	"""Check for new achievements and award them. Returns list of newly earned achievements."""
-	state = get_state()
-	earned = state.get("achievements", [])
-	new_achievements = []
-	
-	# Define all achievements
-	achievements = [
+def get_achievement_definitions() -> List[Dict[str, Any]]:
+	"""Get all achievement definitions. Returns list of achievement dicts with id, name, desc, and check function."""
+	return [
 		{"id": "first_flight", "name": "First Flight", "desc": "Complete your first flight", "check": lambda s: len(s.get("completed_flights", [])) >= 1},
 		{"id": "ten_flights", "name": "10 Flights", "desc": "Complete 10 flights", "check": lambda s: len(s.get("completed_flights", [])) >= 10},
 		{"id": "hundred_flights", "name": "100 Flights", "desc": "Complete 100 flights", "check": lambda s: len(s.get("completed_flights", [])) >= 100},
@@ -2735,6 +3030,16 @@ def check_and_award_achievements() -> List[Dict[str, Any]]:
 		{"id": "first_pilot", "name": "First Pilot", "desc": "Hire your first pilot", "check": lambda s: len(s.get("pilots", [])) >= 1},
 		{"id": "pilot_team", "name": "Pilot Team", "desc": "Hire 5 pilots", "check": lambda s: len(s.get("pilots", [])) >= 5},
 	]
+
+
+def check_and_award_achievements() -> List[Dict[str, Any]]:
+	"""Check for new achievements and award them. Returns list of newly earned achievements."""
+	state = get_state()
+	earned = state.get("achievements", [])
+	new_achievements = []
+	
+	# Get achievement definitions
+	achievements = get_achievement_definitions()
 	
 	for ach in achievements:
 		if ach["id"] not in earned and ach["check"](state):

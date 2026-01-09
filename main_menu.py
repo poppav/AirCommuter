@@ -1,8 +1,107 @@
 import tkinter as tk
 import time
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, scrolledtext
 from typing import Dict, Any
 import os
+import sys
+
+# Sound system
+SOUND_ENABLED = True
+SOUNDS_DIR = "sounds"  # Directory for custom sound files
+SOUND_AVAILABLE = False
+USE_PYGAME = False
+USE_PLAYSOUND = False
+
+# Try to initialize sound libraries
+try:
+	import winsound
+	SOUND_AVAILABLE = True
+except ImportError:
+	pass
+
+# Try pygame for MP3 support
+try:
+	import pygame
+	pygame.mixer.init()
+	SOUND_AVAILABLE = True
+	USE_PYGAME = True
+except ImportError:
+	pass
+
+# Try playsound as fallback (simpler, supports MP3)
+if not USE_PYGAME:
+	try:
+		from playsound import playsound
+		SOUND_AVAILABLE = True
+		USE_PLAYSOUND = True
+	except ImportError:
+		pass
+
+def play_sound(sound_type: str = "click", use_custom: bool = True):
+	"""Play a sound effect. 
+	
+	Args:
+		sound_type: Type of sound ('click', 'success', 'error', 'achievement', 'notification')
+		use_custom: If True, tries to play custom sound file first, then falls back to system sounds
+	
+	Sound files should be placed in the 'sounds/' directory with names like:
+	- click.mp3 or click.wav
+	- success.mp3 or success.wav
+	- error.mp3 or error.wav
+	- achievement.mp3 or achievement.wav
+	- notification.mp3 or notification.wav
+	"""
+	if not SOUND_ENABLED or not SOUND_AVAILABLE:
+		return
+	
+	# Try custom sound file first if enabled
+	if use_custom and os.path.exists(SOUNDS_DIR):
+		sound_file = None
+		for ext in [".mp3", ".wav", ".ogg"]:
+			path = os.path.join(SOUNDS_DIR, f"{sound_type}{ext}")
+			if os.path.exists(path):
+				sound_file = path
+				break
+		
+		if sound_file:
+			try:
+				if USE_PYGAME:
+					sound = pygame.mixer.Sound(sound_file)
+					sound.play()
+				elif USE_PLAYSOUND:
+					playsound(sound_file, block=False)
+				else:
+					# Try winsound for WAV files
+					if sound_file.endswith('.wav'):
+						winsound.PlaySound(sound_file, winsound.SND_FILENAME | winsound.SND_ASYNC)
+					else:
+						# Can't play MP3 with winsound, fall through to system sounds
+						raise Exception("MP3 not supported with winsound")
+				return  # Successfully played custom sound
+			except Exception:
+				pass  # Fall through to system sounds
+	
+	# Fall back to Windows system sounds
+	try:
+		if sound_type == "click":
+			winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
+		elif sound_type == "success":
+			winsound.PlaySound("SystemDefault", winsound.SND_ALIAS | winsound.SND_ASYNC)
+		elif sound_type == "error":
+			winsound.PlaySound("SystemHand", winsound.SND_ALIAS | winsound.SND_ASYNC)
+		elif sound_type == "achievement":
+			winsound.PlaySound("SystemExclamation", winsound.SND_ALIAS | winsound.SND_ASYNC)
+		elif sound_type == "notification":
+			winsound.PlaySound("SystemQuestion", winsound.SND_ALIAS | winsound.SND_ASYNC)
+	except Exception:
+		pass  # Silently fail if sound can't play
+
+def wrap_command_with_sound(command, sound_type="click"):
+	"""Wrap a command function to play a sound before executing."""
+	def wrapped():
+		play_sound(sound_type)
+		command()
+	return wrapped
 
 # Game Theme Colors
 GAME_COLORS = {
@@ -127,7 +226,6 @@ class App(tk.Tk):
 			CompanySetupFrame,
 			FleetManagerFrame,
 			StoreFrame,
-			MaintenanceFrame,
 			ParkingFrame,
 			FlightsFrame,
 			LoansFrame,
@@ -183,7 +281,7 @@ class BaseFrame(tk.Frame):
 		# Home button with game styling
 		btn_home = tk.Button(toolbar, 
 			text="🏠 Main Menu", 
-			command=lambda: self.controller.show_frame("MainMenuFrame"),
+			command=wrap_command_with_sound(lambda: self.controller.show_frame("MainMenuFrame")),
 			bg=GAME_COLORS["button_bg"],
 			fg=GAME_COLORS["text_primary"],
 			font=("Segoe UI", 10, "bold"),
@@ -252,7 +350,6 @@ class MainMenuFrame(BaseFrame):
 			("🛩️ Manage Fleet", "FleetManagerFrame"),
 			("🛒 Buy Aircraft", "StoreFrame"),
 			("🪑 Cabin Configuration", "CabinConfigFrame"),
-			("🔧 Maintenance", "MaintenanceFrame"),
 			("🅿️ Parking Manager", "ParkingFrame"),
 			("🛫 Airport Services", "AirportServicesFrame"),
 			("✈️ Flights", "FlightsFrame"),
@@ -268,7 +365,7 @@ class MainMenuFrame(BaseFrame):
 		cols = 3
 		for idx, (label, frame_name) in enumerate(buttons):
 			btn = tk.Button(grid, text=label, 
-				command=lambda n=frame_name: controller.show_frame(n),
+				command=wrap_command_with_sound(lambda n=frame_name: controller.show_frame(n)),
 				bg=GAME_COLORS["button_bg"],
 				fg=GAME_COLORS["text_primary"],
 				font=("Segoe UI", 9, "bold"),
@@ -295,7 +392,7 @@ class MainMenuFrame(BaseFrame):
 		actions = tk.Frame(content, bg=GAME_COLORS["bg_primary"])
 		actions.pack(fill=tk.X, pady=(12, 0))
 		btn_autocomplete = tk.Button(actions, text="⚡ Auto-complete due flights", 
-			command=self._on_autocomplete,
+			command=wrap_command_with_sound(self._on_autocomplete),
 			bg=GAME_COLORS["button_bg"],
 			fg=GAME_COLORS["text_primary"],
 			font=("Segoe UI", 9, "bold"),
@@ -308,7 +405,7 @@ class MainMenuFrame(BaseFrame):
 			activeforeground=GAME_COLORS["accent_blue"])
 		btn_autocomplete.pack(side=tk.LEFT)
 		btn_daily = tk.Button(actions, text="📅 Run daily tick", 
-			command=self._on_daily_tick,
+			command=wrap_command_with_sound(self._on_daily_tick),
 			bg=GAME_COLORS["button_bg"],
 			fg=GAME_COLORS["text_primary"],
 			font=("Segoe UI", 9, "bold"),
@@ -408,12 +505,23 @@ class MainMenuFrame(BaseFrame):
 
 		# Achievements
 		achievements_frame = tk.Frame(parent, bg=GAME_COLORS["bg_panel"])
-		achievements_frame.pack(fill=tk.X, padx=12, pady=8)
+		achievements_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
 		tk.Label(achievements_frame, text="🏆 Achievements", font=("Segoe UI", 10, "bold"),
 			bg=GAME_COLORS["bg_panel"], fg=GAME_COLORS["accent_gold"]).pack(anchor=tk.W)
 		self.achievements_var = tk.StringVar(value="0 earned")
 		tk.Label(achievements_frame, textvariable=self.achievements_var, font=("Segoe UI", 9),
 			bg=GAME_COLORS["bg_panel"], fg=GAME_COLORS["text_primary"]).pack(anchor=tk.W, pady=(2, 0))
+		
+		# Scrollable list for achievements
+		achievements_list_frame = tk.Frame(achievements_frame, bg=GAME_COLORS["bg_panel"])
+		achievements_list_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+		
+		# Create scrollable text widget
+		self.achievements_text = scrolledtext.ScrolledText(achievements_list_frame, 
+			height=6, width=30, wrap=tk.WORD, bg=GAME_COLORS["bg_secondary"],
+			fg=GAME_COLORS["text_primary"], font=("Segoe UI", 8),
+			relief=tk.FLAT, borderwidth=1, state=tk.DISABLED)
+		self.achievements_text.pack(fill=tk.BOTH, expand=True)
 
 	def on_shown(self, _event=None):
 		# Lazy import to avoid circular imports once we add storage
@@ -482,6 +590,36 @@ class MainMenuFrame(BaseFrame):
 			# Achievements
 			achievements = state.get("achievements", [])
 			self.achievements_var.set(f"🏆 {len(achievements)} earned")
+			
+			# Get achievement definitions from services (ensures they match what's awarded)
+			from services import get_achievement_definitions
+			all_achievements = get_achievement_definitions()
+			achievement_definitions = {ach["id"]: {"name": ach["name"], "desc": ach["desc"]} for ach in all_achievements}
+			
+			# Update achievements display
+			self.achievements_text.config(state=tk.NORMAL)
+			self.achievements_text.delete(1.0, tk.END)
+			
+			if achievements:
+				for ach_id in achievements:
+					ach_info = achievement_definitions.get(ach_id, {"name": ach_id, "desc": ""})
+					ach_name = ach_info.get("name", ach_id)
+					ach_desc = ach_info.get("desc", "")
+					self.achievements_text.insert(tk.END, f"🏆 {ach_name}\n", "achievement_name")
+					if ach_desc:
+						self.achievements_text.insert(tk.END, f"   {ach_desc}\n\n", "achievement_desc")
+			else:
+				self.achievements_text.insert(tk.END, "No achievements earned yet.\n", "no_achievements")
+			
+			# Configure text tags for styling
+			self.achievements_text.tag_config("achievement_name", 
+				foreground=GAME_COLORS["accent_gold"], font=("Segoe UI", 9, "bold"))
+			self.achievements_text.tag_config("achievement_desc", 
+				foreground=GAME_COLORS["text_muted"], font=("Segoe UI", 8))
+			self.achievements_text.tag_config("no_achievements", 
+				foreground=GAME_COLORS["text_muted"], font=("Segoe UI", 8, "italic"))
+			
+			self.achievements_text.config(state=tk.DISABLED)
 			net_color = "#0a7f2e" if net >= 0 else "#b00020"
 			self.net_30d_var.set(f"Net: ${net:,}")
 			self.net_label.config(foreground=net_color)
@@ -532,7 +670,7 @@ class CompanySetupFrame(BaseFrame):
 
 		btns = ttk.Frame(form)
 		btns.pack(pady=12, fill=tk.X)
-		btn_save = ttk.Button(btns, text="Save", command=self.save_company)
+		btn_save = ttk.Button(btns, text="Save", command=wrap_command_with_sound(self.save_company))
 		btn_save.pack(side=tk.LEFT)
 
 	def _add_row(self, parent, label, var):
@@ -582,7 +720,7 @@ class FleetManagerFrame(BaseFrame):
 		toolbar.pack(fill=tk.X, padx=12, pady=8)
 		
 		def create_game_button(parent, text, command):
-			return tk.Button(parent, text=text, command=command,
+			return tk.Button(parent, text=text, command=wrap_command_with_sound(command),
 				bg=GAME_COLORS["button_bg"],
 				fg=GAME_COLORS["text_primary"],
 				font=("Segoe UI", 9, "bold"),
@@ -598,6 +736,10 @@ class FleetManagerFrame(BaseFrame):
 		btn_refresh.pack(side=tk.LEFT)
 		btn_maint = create_game_button(toolbar, "🔧 Perform Maintenance", self._on_maint)
 		btn_maint.pack(side=tk.LEFT, padx=8)
+		btn_oil = create_game_button(toolbar, "🛢️ Check Oil", self._on_refill_oil)
+		btn_oil.pack(side=tk.LEFT, padx=8)
+		btn_oil_change = create_game_button(toolbar, "🔄 Full Oil Change", self._on_change_oil)
+		btn_oil_change.pack(side=tk.LEFT, padx=8)
 		btn_change = create_game_button(toolbar, "✏️ Change ID", self._on_change_id)
 		btn_change.pack(side=tk.LEFT, padx=8)
 		btn_weight = create_game_button(toolbar, "⚖️ Configure Weight Limits", self._on_configure_weight)
@@ -677,7 +819,90 @@ class FleetManagerFrame(BaseFrame):
 			self.refresh()
 		except Exception as exc:
 			messagebox.showerror("Maintenance", str(exc))
-
+	
+	def _on_refill_oil(self):
+		ac_id = self._get_selected_aircraft_id()
+		if not ac_id:
+			messagebox.showinfo("Check Oil", "Select an aircraft first.")
+			return
+		try:
+			from services import list_fleet, refill_aircraft_oil, walkaround_check
+			fleet = list_fleet()
+			aircraft = next((ac for ac in fleet if ac.get("id") == ac_id), None)
+			if not aircraft:
+				messagebox.showerror("Check Oil", "Aircraft not found.")
+				return
+			
+			# Check if aircraft tracks oil
+			if "oil_level" not in aircraft or "oil_capacity" not in aircraft:
+				messagebox.showinfo("Check Oil", "This aircraft type does not require manual oil checks (airliners manage oil automatically).")
+				return
+			
+			# Get current oil status
+			walkaround = walkaround_check(ac_id)
+			oil_level = walkaround.get("oil_level", 0.0)
+			oil_capacity = walkaround.get("oil_capacity", 32.0)
+			oil_minimum = walkaround.get("oil_minimum", 12.0)
+			oil_percent = (oil_level / oil_capacity * 100) if oil_capacity > 0 else 0
+			
+			# Show oil level in popup
+			status_msg = f"Oil Level: {oil_level:.1f} / {oil_capacity:.1f} quarts ({oil_percent:.0f}%)\n"
+			status_msg += f"Minimum: {oil_minimum:.1f} quarts\n\n"
+			
+			if oil_level < oil_minimum:
+				status_msg += "⚠️ CRITICAL: Oil below minimum!"
+			elif oil_percent < 50:
+				status_msg += "⚠️ Oil level is low"
+			else:
+				status_msg += "✓ Oil level is good"
+			
+			# Ask if they want to add oil
+			if oil_level < oil_capacity:
+				if messagebox.askyesno("Check Oil", status_msg + "\n\nWould you like to add oil?"):
+					try:
+						refill_aircraft_oil(ac_id)
+						messagebox.showinfo("Oil Top-Up", "Oil topped up successfully!")
+						self.refresh()
+					except Exception as exc:
+						messagebox.showerror("Oil Top-Up", str(exc))
+			else:
+				messagebox.showinfo("Check Oil", status_msg)
+		except Exception as exc:
+			messagebox.showerror("Check Oil", str(exc))
+	
+	def _on_change_oil(self):
+		ac_id = self._get_selected_aircraft_id()
+		if not ac_id:
+			messagebox.showinfo("Oil Change", "Select an aircraft first.")
+			return
+		try:
+			# Check if aircraft needs oil (smaller planes only)
+			from services import list_fleet, change_aircraft_oil
+			fleet = list_fleet()
+			aircraft = next((ac for ac in fleet if ac.get("id") == ac_id), None)
+			if not aircraft:
+				messagebox.showerror("Oil Change", "Aircraft not found.")
+				return
+			
+			# Check if aircraft tracks oil
+			if "oil_level" not in aircraft or "oil_capacity" not in aircraft:
+				messagebox.showinfo("Oil Change", "This aircraft type does not require manual oil changes (airliners manage oil automatically).")
+				return
+			
+			# Confirm oil change
+			hours_since = aircraft.get("hours_since_oil_change", 0.0)
+			confirm = messagebox.askyesno("Full Oil Change", 
+				f"Perform full oil change on {ac_id}?\n\n"
+				f"Hours since last change: {hours_since:.1f}h\n"
+				f"Recommended interval: 50 hours\n\n"
+				f"This will cost ${aircraft.get('oil_capacity', 32.0) * 100:.0f} (more expensive than top-up).")
+			if confirm:
+				change_aircraft_oil(ac_id)
+				messagebox.showinfo("Oil Change", "Full oil change completed successfully!")
+				self.refresh()
+		except Exception as exc:
+			messagebox.showerror("Oil Change", str(exc))
+	
 	def _on_change_id(self):
 		ac_id = self._get_selected_aircraft_id()
 		if not ac_id:
@@ -856,11 +1081,11 @@ class StoreFrame(BaseFrame):
 	def _build_new_aircraft_tab(self):
 		toolbar = ttk.Frame(self.new_frame)
 		toolbar.pack(fill=tk.X, padx=12, pady=8)
-		btn_buy = ttk.Button(toolbar, text="Buy Selected", command=self._on_buy_new)
+		btn_buy = ttk.Button(toolbar, text="Buy Selected", command=wrap_command_with_sound(self._on_buy_new))
 		btn_buy.pack(side=tk.LEFT)
-		btn_edit_duration = ttk.Button(toolbar, text="Edit Max Duration", command=self._on_edit_duration)
+		btn_edit_duration = ttk.Button(toolbar, text="Edit Max Duration", command=wrap_command_with_sound(self._on_edit_duration))
 		btn_edit_duration.pack(side=tk.LEFT, padx=8)
-		btn_refresh = ttk.Button(toolbar, text="Refresh", command=self.refresh)
+		btn_refresh = ttk.Button(toolbar, text="Refresh", command=wrap_command_with_sound(self.refresh))
 		btn_refresh.pack(side=tk.LEFT, padx=8)
 		
 		cols = ("type", "name", "price", "max_duration")
@@ -874,9 +1099,9 @@ class StoreFrame(BaseFrame):
 	def _build_marketplace_tab(self):
 		toolbar = ttk.Frame(self.marketplace_frame)
 		toolbar.pack(fill=tk.X, padx=12, pady=8)
-		btn_buy = ttk.Button(toolbar, text="Buy Selected", command=self._on_buy_marketplace)
+		btn_buy = ttk.Button(toolbar, text="Buy Selected", command=wrap_command_with_sound(self._on_buy_marketplace))
 		btn_buy.pack(side=tk.LEFT)
-		btn_refresh = ttk.Button(toolbar, text="Refresh", command=self.refresh)
+		btn_refresh = ttk.Button(toolbar, text="Refresh", command=wrap_command_with_sound(self.refresh))
 		btn_refresh.pack(side=tk.LEFT, padx=8)
 		ttk.Label(toolbar, text="Marketplace listings refresh daily", font=("Segoe UI", 8), foreground="#666").pack(side=tk.LEFT, padx=12)
 		
@@ -894,9 +1119,9 @@ class StoreFrame(BaseFrame):
 	def _build_leasing_tab(self):
 		toolbar = ttk.Frame(self.lease_frame)
 		toolbar.pack(fill=tk.X, padx=12, pady=8)
-		btn_lease = ttk.Button(toolbar, text="Lease Selected", command=self._on_lease)
+		btn_lease = ttk.Button(toolbar, text="Lease Selected", command=wrap_command_with_sound(self._on_lease))
 		btn_lease.pack(side=tk.LEFT)
-		btn_refresh = ttk.Button(toolbar, text="Refresh", command=self.refresh)
+		btn_refresh = ttk.Button(toolbar, text="Refresh", command=wrap_command_with_sound(self.refresh))
 		btn_refresh.pack(side=tk.LEFT, padx=8)
 		
 		cols = ("type", "name", "monthly_payment", "term_months", "description")
@@ -1298,99 +1523,7 @@ class StoreFrame(BaseFrame):
 			messagebox.showerror("Store", str(exc))
 
 
-class MaintenanceFrame(BaseFrame):
-
-	def __init__(self, parent, controller):
-		super().__init__(parent, controller)
-		self.title_var.set("Maintenance")
-		label = ttk.Label(self, text="Use Fleet Manager to perform maintenance on selected aircraft.")
-		label.pack(padx=16, pady=16)
-
-		panel = ttk.LabelFrame(self, text="Perform Maintenance")
-		panel.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
-		
-		# Add info label about intervals at the top
-		info_label = ttk.Label(panel, text="Intervals: A Check every 150h | B Check every 750h | C Check every 4000h", font=("Segoe UI", 8))
-		info_label.pack(pady=(8, 4))
-		
-		cols = ("id", "type", "name", "hrs", "a_check", "b_check", "c_check", "reliability", "grounded")
-		self.tree = ttk.Treeview(panel, columns=cols, show="headings", height=18)
-		for c, h in zip(cols, ["ID", "Type", "Name", "Hours", "A Check", "B Check", "C Check", "Reliability", "Grounded"]):
-			self.tree.heading(c, text=h)
-			self.tree.column(c, width=90 if c in ("a_check", "b_check", "c_check") else 110, anchor=tk.W)
-		# Configure tags for color coding
-		self.tree.tag_configure("overdue", foreground=GAME_COLORS["error"])
-		self.tree.tag_configure("due", foreground=GAME_COLORS["warning"])
-		self.tree.tag_configure("ok", foreground=GAME_COLORS["success"])
-		self.tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-
-		btns = ttk.Frame(panel); btns.pack(fill=tk.X, padx=8, pady=6)
-		for lvl in ("A", "B", "C"):
-			ttk.Button(btns, text=f"{lvl} Check", command=lambda L=lvl: self._on_level(L)).pack(side=tk.LEFT, padx=6)
-		# Show costs info
-		costs = ttk.Label(btns, text="Costs: A $50,000   B $200,000   C $800,000")
-		costs.pack(side=tk.LEFT, padx=12)
-		self.bind("<<FrameShown>>", lambda e: self.refresh())
-
-	def refresh(self):
-		self.tree.delete(*self.tree.get_children())
-		try:
-			from services import list_fleet, get_maintenance_status, MAINTENANCE_INTERVALS
-			for ac in list_fleet():
-				ac_id = ac.get("id")
-				maint_status = get_maintenance_status(ac_id)
-				
-				# Format maintenance status for each check
-				def format_check_status(check_type):
-					if check_type not in maint_status:
-						return "N/A"
-					check = maint_status[check_type]
-					hours = check["hours"]
-					interval = check["interval"]
-					if check["overdue"]:
-						return f"{hours:.0f}/{interval:.0f} ⚠"
-					elif check["due"]:
-						return f"{hours:.0f}/{interval:.0f} !"
-					else:
-						return f"{hours:.0f}/{interval:.0f}"
-				
-				# Determine tag color based on worst status
-				tag = "ok"
-				if any(maint_status.get(k, {}).get("overdue", False) for k in ["a_check", "b_check", "c_check"]):
-					tag = "overdue"
-				elif any(maint_status.get(k, {}).get("due", False) for k in ["a_check", "b_check", "c_check"]):
-					tag = "due"
-				
-				vals = (
-					ac.get("id"), ac.get("type_code"), ac.get("name"), f"{ac.get('hours_since_maintenance', 0):.1f}",
-					format_check_status("a_check"),
-					format_check_status("b_check"),
-					format_check_status("c_check"),
-					f"{float(ac.get('reliability', 1.0)):.2f}", "Yes" if ac.get("grounded") else "No",
-				)
-				self.tree.insert("", tk.END, values=vals, tags=(tag,))
-		except Exception:
-			pass
-
-	def _selected_ac(self):
-		item = self.tree.focus()
-		if not item:
-			return None
-		vals = self.tree.item(item, "values")
-		return vals[0] if vals else None
-
-	def _on_level(self, level):
-		ac_id = self._selected_ac()
-		if not ac_id:
-			messagebox.showinfo("Maintenance", "Select an aircraft.")
-			return
-		try:
-			from services import perform_maintenance_level
-			perform_maintenance_level(ac_id, level)
-			self.refresh()
-			messagebox.showinfo("Maintenance", f"{level} check completed.")
-		except Exception as exc:
-			messagebox.showerror("Maintenance", str(exc))
+# MaintenanceFrame removed - maintenance is now handled in FleetManagerFrame
 
 
 class ParkingFrame(BaseFrame):
@@ -1411,7 +1544,7 @@ class ParkingFrame(BaseFrame):
 		ttk.Entry(row, textvariable=self.spots_var, width=8).pack(side=tk.LEFT, padx=(0, 12))
 		ttk.Label(row, text="Hangars", width=8).pack(side=tk.LEFT)
 		ttk.Entry(row, textvariable=self.hangars_var, width=8).pack(side=tk.LEFT, padx=(0, 12))
-		btn = ttk.Button(form, text="Buy", command=self._on_buy)
+		btn = ttk.Button(form, text="Buy", command=wrap_command_with_sound(self._on_buy))
 		btn.pack(side=tk.LEFT, padx=8, pady=6)
 
 		# Costs info
@@ -1604,7 +1737,7 @@ class FlightsFrame(BaseFrame):
 			entry.pack(side=tk.LEFT, padx=(0, 12))
 
 		btns = ttk.Frame(form); btns.pack(fill=tk.X, padx=8, pady=6)
-		btn_start = tk.Button(btns, text="✈️ Start Flight", command=self._on_start,
+		btn_start = tk.Button(btns, text="✈️ Start Flight", command=wrap_command_with_sound(self._on_start),
 			bg=GAME_COLORS["button_bg"],
 			fg=GAME_COLORS["text_primary"],
 			font=("Segoe UI", 10, "bold"),
@@ -1638,7 +1771,7 @@ class FlightsFrame(BaseFrame):
 		btn_frame = ttk.Frame(list_frame)
 		btn_frame.pack(side=tk.RIGHT, padx=8, pady=(0, 8))
 		def create_game_button(parent, text, command):
-			return tk.Button(parent, text=text, command=command,
+			return tk.Button(parent, text=text, command=wrap_command_with_sound(command),
 				bg=GAME_COLORS["button_bg"],
 				fg=GAME_COLORS["text_primary"],
 				font=("Segoe UI", 9, "bold"),
@@ -1780,6 +1913,10 @@ class FlightsFrame(BaseFrame):
 			oil_minimum = walkaround.get("oil_minimum", 12.0)
 			oil_low = walkaround.get("oil_low", False)
 			oil_critical = walkaround.get("oil_critical", False)
+			hours_since_oil_change = walkaround.get("hours_since_oil_change", 0.0)
+			oil_change_interval = walkaround.get("oil_change_interval", 50.0)
+			oil_change_due = walkaround.get("oil_change_due", False)
+			oil_change_overdue = walkaround.get("oil_change_overdue", False)
 			oil_percent = (oil_level / oil_capacity * 100) if oil_capacity > 0 else 0
 			
 			oil_info = ttk.Frame(oil_frame)
@@ -1792,18 +1929,38 @@ class FlightsFrame(BaseFrame):
 				font=("Segoe UI", 10, "bold"), foreground=oil_color).pack(side=tk.LEFT)
 			ttk.Label(oil_info, text=f"Status: {oil_status}", font=("Segoe UI", 10), foreground=oil_color).pack(side=tk.RIGHT)
 			
+			# Oil change status
+			if oil_change_overdue:
+				oil_change_warning = ttk.Label(oil_frame,
+					text=f"⚠️ OIL CHANGE OVERDUE! {hours_since_oil_change:.1f}h since last change (interval: {oil_change_interval:.0f}h). Fine may apply if problems occur.",
+					font=("Segoe UI", 9), foreground="#ff4444", wraplength=650)
+				oil_change_warning.pack(padx=10, pady=(0, 8))
+			elif oil_change_due:
+				oil_change_warning = ttk.Label(oil_frame,
+					text=f"⚠️ Oil change due: {hours_since_oil_change:.1f}h since last change (interval: {oil_change_interval:.0f}h).",
+					font=("Segoe UI", 9), foreground="#ff9800", wraplength=650)
+				oil_change_warning.pack(padx=10, pady=(0, 8))
+			else:
+				oil_change_status = ttk.Label(oil_frame,
+					text=f"✓ Oil change status: {hours_since_oil_change:.1f}h / {oil_change_interval:.0f}h",
+					font=("Segoe UI", 9), foreground="#0a7f2e", wraplength=650)
+				oil_change_status.pack(padx=10, pady=(0, 8))
+			
 			if oil_low or oil_critical:
 				oil_warning = ttk.Label(oil_frame, 
-					text=f"⚠️ Oil level is {'CRITICALLY LOW' if oil_critical else 'LOW'}. Aircraft can fly for about a month without refill.",
+					text=f"⚠️ Oil level is {'CRITICALLY LOW' if oil_critical else 'LOW'}. Top up oil monthly based on capacity and minimum.",
 					font=("Segoe UI", 9), foreground="#ff9800", wraplength=650)
 				oil_warning.pack(padx=10, pady=(0, 8))
 			
-			# Refill oil button
+			# Oil buttons
+			oil_btn_frame = ttk.Frame(oil_frame)
+			oil_btn_frame.pack(fill=tk.X, padx=10, pady=(0, 8))
 			if oil_low or oil_critical:
-				oil_btn_frame = ttk.Frame(oil_frame)
-				oil_btn_frame.pack(fill=tk.X, padx=10, pady=(0, 8))
-				ttk.Button(oil_btn_frame, text="Refill Oil Now", 
-					command=lambda: self._refill_oil_in_dialog(dialog, aircraft_id, oil_frame)).pack(side=tk.LEFT)
+				ttk.Button(oil_btn_frame, text="Top Up Oil", 
+					command=lambda: self._refill_oil_in_dialog(dialog, aircraft_id, oil_frame)).pack(side=tk.LEFT, padx=(0, 5))
+			if oil_change_due or oil_change_overdue:
+				ttk.Button(oil_btn_frame, text="Full Oil Change", 
+					command=lambda: self._change_oil_in_dialog(dialog, aircraft_id, oil_frame)).pack(side=tk.LEFT)
 			
 			# Tire Condition Section (for smaller planes)
 			tire_condition = walkaround.get("tire_condition")
@@ -1927,17 +2084,165 @@ class FlightsFrame(BaseFrame):
 		return result
 	
 	def _refill_oil_in_dialog(self, dialog, aircraft_id: str, oil_frame):
-		"""Refill oil and refresh the oil display in the dialog."""
+		"""Check oil and optionally top up."""
 		try:
 			from services import refill_aircraft_oil, walkaround_check
-			refill_aircraft_oil(aircraft_id)
-			# Refresh oil display by destroying and recreating the frame
-			# This is a simple approach - in production you might want to update the labels
-			messagebox.showinfo("Oil Refill", "Oil refilled successfully.")
-			# Note: The walkaround was already done, so we'll just close the dialog and let user restart
-			# Or we could refresh the walkaround, but for simplicity, just show success
+			walkaround = walkaround_check(aircraft_id)
+			oil_level = walkaround.get("oil_level", 0.0)
+			oil_capacity = walkaround.get("oil_capacity", 32.0)
+			oil_minimum = walkaround.get("oil_minimum", 12.0)
+			oil_percent = (oil_level / oil_capacity * 100) if oil_capacity > 0 else 0
+			
+			# Show oil level in popup
+			status_msg = f"Oil Level: {oil_level:.1f} / {oil_capacity:.1f} quarts ({oil_percent:.0f}%)\n"
+			status_msg += f"Minimum: {oil_minimum:.1f} quarts\n\n"
+			
+			if oil_level < oil_minimum:
+				status_msg += "⚠️ CRITICAL: Oil below minimum!"
+			elif oil_percent < 50:
+				status_msg += "⚠️ Oil level is low"
+			else:
+				status_msg += "✓ Oil level is good"
+			
+			# Ask if they want to add oil
+			if oil_level < oil_capacity:
+				if messagebox.askyesno("Check Oil", status_msg + "\n\nWould you like to add oil?"):
+					try:
+						refill_aircraft_oil(aircraft_id)
+						messagebox.showinfo("Oil Top-Up", "Oil topped up successfully!")
+						# Refresh oil display
+						for widget in oil_frame.winfo_children():
+							widget.destroy()
+						updated_walkaround = walkaround_check(aircraft_id)
+						self._update_oil_display_in_dialog(oil_frame, updated_walkaround, dialog, aircraft_id)
+					except Exception as exc:
+						messagebox.showerror("Oil Top-Up", str(exc))
+			else:
+				messagebox.showinfo("Check Oil", status_msg)
 		except Exception as exc:
-			messagebox.showerror("Oil Refill", str(exc))
+			messagebox.showerror("Check Oil", str(exc))
+	
+	def _change_oil_in_dialog(self, dialog, aircraft_id: str, oil_frame):
+		"""Perform full oil change."""
+		try:
+			from services import change_aircraft_oil, walkaround_check, list_fleet
+			fleet = list_fleet()
+			aircraft = next((ac for ac in fleet if ac.get("id") == aircraft_id), None)
+			if not aircraft:
+				messagebox.showerror("Oil Change", "Aircraft not found.")
+				return
+			
+			hours_since = aircraft.get("hours_since_oil_change", 0.0)
+			confirm = messagebox.askyesno("Full Oil Change", 
+				f"Perform full oil change on {aircraft_id}?\n\n"
+				f"Hours since last change: {hours_since:.1f}h\n"
+				f"Recommended interval: 50 hours\n\n"
+				f"This will cost ${aircraft.get('oil_capacity', 32.0) * 100:.0f} (more expensive than top-up).")
+			if confirm:
+				change_aircraft_oil(aircraft_id)
+				messagebox.showinfo("Oil Change", "Full oil change completed successfully!")
+				# Refresh oil display
+				for widget in oil_frame.winfo_children():
+					widget.destroy()
+				updated_walkaround = walkaround_check(aircraft_id)
+				self._update_oil_display_in_dialog(oil_frame, updated_walkaround, dialog, aircraft_id)
+		except Exception as exc:
+			messagebox.showerror("Oil Change", str(exc))
+	
+	def _update_oil_display_in_dialog(self, oil_frame, walkaround, dialog, aircraft_id):
+		"""Update oil display in walkaround dialog."""
+		oil_level = walkaround.get("oil_level")
+		if oil_level is None:
+			return
+		
+		oil_capacity = walkaround.get("oil_capacity", 32.0)
+		oil_minimum = walkaround.get("oil_minimum", 12.0)
+		oil_low = walkaround.get("oil_low", False)
+		oil_critical = walkaround.get("oil_critical", False)
+		hours_since_oil_change = walkaround.get("hours_since_oil_change", 0.0)
+		oil_change_interval = walkaround.get("oil_change_interval", 50.0)
+		oil_change_due = walkaround.get("oil_change_due", False)
+		oil_change_overdue = walkaround.get("oil_change_overdue", False)
+		oil_percent = (oil_level / oil_capacity * 100) if oil_capacity > 0 else 0
+		
+		oil_info = ttk.Frame(oil_frame)
+		oil_info.pack(fill=tk.X, padx=10, pady=8)
+		ttk.Label(oil_info, text=f"Level: {oil_level:.1f} / {oil_capacity:.1f} quarts ({oil_percent:.0f}%)", 
+			font=("Segoe UI", 10)).pack(side=tk.LEFT)
+		ttk.Label(oil_info, text=f"Minimum: {oil_minimum:.1f} quarts", 
+			font=("Segoe UI", 9), foreground="#666").pack(side=tk.LEFT, padx=(20, 0))
+		
+		# Oil change status
+		if oil_change_overdue:
+			oil_change_warning = ttk.Label(oil_frame,
+				text=f"⚠️ OIL CHANGE OVERDUE! {hours_since_oil_change:.1f}h since last change (interval: {oil_change_interval:.0f}h). Fine may apply if problems occur.",
+				font=("Segoe UI", 9), foreground="#ff4444", wraplength=650)
+			oil_change_warning.pack(padx=10, pady=(0, 8))
+		elif oil_change_due:
+			oil_change_warning = ttk.Label(oil_frame,
+				text=f"⚠️ Oil change due: {hours_since_oil_change:.1f}h since last change (interval: {oil_change_interval:.0f}h).",
+				font=("Segoe UI", 9), foreground="#ff9800", wraplength=650)
+			oil_change_warning.pack(padx=10, pady=(0, 8))
+		else:
+			oil_change_status = ttk.Label(oil_frame,
+				text=f"✓ Oil change status: {hours_since_oil_change:.1f}h / {oil_change_interval:.0f}h",
+				font=("Segoe UI", 9), foreground="#0a7f2e", wraplength=650)
+			oil_change_status.pack(padx=10, pady=(0, 8))
+		
+		if oil_low or oil_critical:
+			oil_warning = ttk.Label(oil_frame, 
+				text=f"⚠️ Oil level is {'CRITICALLY LOW' if oil_critical else 'LOW'}. Top up oil monthly based on capacity and minimum.",
+				font=("Segoe UI", 9), foreground="#ff9800", wraplength=650)
+			oil_warning.pack(padx=10, pady=(0, 8))
+		
+		# Oil buttons
+		oil_btn_frame = ttk.Frame(oil_frame)
+		oil_btn_frame.pack(fill=tk.X, padx=10, pady=(0, 8))
+		if oil_low or oil_critical:
+			ttk.Button(oil_btn_frame, text="Top Up Oil", 
+				command=lambda: self._refill_oil_in_dialog(dialog, aircraft_id, oil_frame)).pack(side=tk.LEFT, padx=(0, 5))
+		if oil_change_due or oil_change_overdue:
+			ttk.Button(oil_btn_frame, text="Full Oil Change", 
+				command=lambda: self._change_oil_in_dialog(dialog, aircraft_id, oil_frame)).pack(side=tk.LEFT)
+	
+	def _show_random_event(self):
+		"""Show a random event popup when starting a flight.
+		
+		To add new events, simply add a dictionary to the RANDOM_EVENTS list below.
+		Each event should have:
+		- 'title': Title of the event popup
+		- 'message': The event description
+		- 'probability': Float between 0.0 and 1.0 (e.g., 0.3 = 30% chance)
+		"""
+		import random
+		
+		# Define random events - easy to extend by adding new dictionaries here
+		RANDOM_EVENTS = [
+			{
+				"title": "Extra Luggage Request",
+				"message": "A passenger has requested to bring 100lbs of extra luggage onto the plane. The request has been noted.",
+				"probability": .25  # 25% chance
+			},
+			# Add more events here by copying the format above
+			# Example:
+			# {
+			# 	"title": "Event Name",
+			# 	"message": "Event description",
+			# 	"probability": 0.15  # 15% chance
+			# },
+		]
+		
+		# Check each event based on its probability and collect those that trigger
+		triggered_events = []
+		for event in RANDOM_EVENTS:
+			if random.random() < event["probability"]:
+				triggered_events.append(event)
+		
+		# If any events triggered, randomly select one to show
+		if triggered_events:
+			selected_event = random.choice(triggered_events)
+			play_sound("notification")
+			messagebox.showinfo(selected_event["title"], selected_event["message"])
 	
 	def _on_start(self):
 		try:
@@ -1983,6 +2288,9 @@ class FlightsFrame(BaseFrame):
 			if not walkaround_result.get("proceed"):
 				# User cancelled walkaround
 				return
+			
+			# Random event popup (before starting flight)
+			self._show_random_event()
 			
 			# Start flight
 			start_flight(ac_id, route, price, hrs)
@@ -2430,6 +2738,13 @@ class FlightsFrame(BaseFrame):
 			if new_achievements:
 				ach_names = [a.get("name", "") for a in new_achievements]
 				achievement_info = f"\n\n🏆 Achievement Unlocked: {', '.join(ach_names)}"
+				play_sound("achievement")  # Play achievement sound
+			
+			# Play success sound for completed flight (if profitable)
+			if res.get('net', 0) > 0:
+				play_sound("success")
+			else:
+				play_sound("notification")
 			
 			messagebox.showinfo(
 				"Flight Ended",
@@ -2530,7 +2845,7 @@ class LoansFrame(BaseFrame):
 		entry = ttk.Entry(custom_frame, textvariable=self.loan_amount_var, width=20)
 		entry.pack(side=tk.LEFT, padx=(0, 8))
 		ttk.Label(custom_frame, text="(Enter amount up to max)", font=("Segoe UI", 8), foreground="#666").pack(side=tk.LEFT)
-		btn_take = ttk.Button(custom_frame, text="Take Selected Loan", command=self._on_take)
+		btn_take = ttk.Button(custom_frame, text="Take Selected Loan", command=wrap_command_with_sound(self._on_take))
 		btn_take.pack(side=tk.LEFT, padx=8)
 		btn_refresh = ttk.Button(custom_frame, text="Refresh Offers", command=self.refresh)
 		btn_refresh.pack(side=tk.LEFT, padx=4)
@@ -2552,7 +2867,7 @@ class LoansFrame(BaseFrame):
 		self.repay_var = tk.StringVar(value="50000")
 		ttk.Label(repay_row, text="Repay Amount $", width=16).pack(side=tk.LEFT)
 		ttk.Entry(repay_row, textvariable=self.repay_var, width=16).pack(side=tk.LEFT)
-		btn_repay = ttk.Button(repay_row, text="Repay Selected", command=self._on_repay)
+		btn_repay = ttk.Button(repay_row, text="Repay Selected", command=wrap_command_with_sound(self._on_repay))
 		btn_repay.pack(side=tk.LEFT, padx=8)
 
 		self.bind("<<FrameShown>>", lambda e: self.refresh())
@@ -2716,7 +3031,7 @@ class PilotsFrame(BaseFrame):
 		ttk.Entry(row, textvariable=self.salary_var, width=12).pack(side=tk.LEFT)
 
 		btns = ttk.Frame(form); btns.pack(fill=tk.X, padx=8, pady=4)
-		btn_hire = ttk.Button(btns, text="Hire Pilot", command=self._on_hire)
+		btn_hire = ttk.Button(btns, text="Hire Pilot", command=wrap_command_with_sound(self._on_hire))
 		btn_hire.pack(side=tk.LEFT)
 
 		list_frame = ttk.LabelFrame(self, text="Pilots")
@@ -2733,11 +3048,11 @@ class PilotsFrame(BaseFrame):
 		self.ac_var = tk.StringVar()
 		self.ac_combo = ttk.Combobox(action_row, textvariable=self.ac_var, width=30, state="readonly")
 		self.ac_combo.pack(side=tk.LEFT, padx=(0, 8))
-		btn_assign = ttk.Button(action_row, text="Assign", command=self._on_assign)
+		btn_assign = ttk.Button(action_row, text="Assign", command=wrap_command_with_sound(self._on_assign))
 		btn_assign.pack(side=tk.LEFT, padx=(0, 8))
-		btn_unassign = ttk.Button(action_row, text="Unassign", command=self._on_unassign)
+		btn_unassign = ttk.Button(action_row, text="Unassign", command=wrap_command_with_sound(self._on_unassign))
 		btn_unassign.pack(side=tk.LEFT, padx=(0, 8))
-		btn_fire = ttk.Button(action_row, text="Fire Pilot", command=self._on_fire)
+		btn_fire = ttk.Button(action_row, text="Fire Pilot", command=wrap_command_with_sound(self._on_fire))
 		btn_fire.pack(side=tk.LEFT)
 
 		self.bind("<<FrameShown>>", lambda e: self.refresh())
@@ -2868,7 +3183,7 @@ class ReportsFrame(BaseFrame):
 		self.period_combo["values"] = ("All", "Today", "7d", "30d", "90d")
 		self.period_combo.pack(side=tk.LEFT, padx=(4, 12))
 		self.period_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh())
-		btn_refresh = ttk.Button(controls, text="Refresh", command=self.refresh)
+		btn_refresh = ttk.Button(controls, text="Refresh", command=wrap_command_with_sound(self.refresh))
 		btn_refresh.pack(side=tk.LEFT)
 
 		kpis = ttk.Frame(self)
@@ -3053,7 +3368,7 @@ class CabinConfigFrame(BaseFrame):
 		self.seats_spin = ttk.Spinbox(row3, from_=1, to=10, textvariable=self.seats_var, width=8)
 		self.seats_spin.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
 		row4 = ttk.Frame(add_section); row4.pack(fill=tk.X, padx=6, pady=6)
-		ttk.Button(row4, text="Add Rows", command=self._on_add_row).pack(fill=tk.X)
+		ttk.Button(row4, text="Add Rows", command=wrap_command_with_sound(self._on_add_row)).pack(fill=tk.X)
 
 		# Update Row section
 		update_section = ttk.LabelFrame(controls_panel, text="Update Row")
@@ -3063,8 +3378,8 @@ class CabinConfigFrame(BaseFrame):
 		self.update_row_var = tk.StringVar(value="1")
 		ttk.Spinbox(row5, from_=1, to=100, textvariable=self.update_row_var, width=8).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
 		row6 = ttk.Frame(update_section); row6.pack(fill=tk.X, padx=6, pady=6)
-		ttk.Button(row6, text="Update Row", command=self._on_update_row).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
-		ttk.Button(row6, text="Remove Row", command=self._on_remove_row).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+		ttk.Button(row6, text="Update Row", command=wrap_command_with_sound(self._on_update_row)).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+		ttk.Button(row6, text="Remove Row", command=wrap_command_with_sound(self._on_remove_row)).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
 
 		# Action buttons section
 		action_section = ttk.LabelFrame(controls_panel, text="Actions")
@@ -3395,6 +3710,97 @@ class AirportServicesFrame(BaseFrame):
 		# Store fuel input variables for refueling service
 		self.fuel_vars = {}
 		
+		# Custom Items Section - below main container
+		custom_items_container = ttk.Frame(self)
+		custom_items_container.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 16))
+		
+		# Left: Purchase custom item
+		purchase_frame = ttk.LabelFrame(custom_items_container, text="Purchase Custom Item")
+		purchase_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+		
+		purchase_inner = ttk.Frame(purchase_frame)
+		purchase_inner.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+		
+		# Airport selection for purchase
+		ttk.Label(purchase_inner, text="Airport:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, pady=(0, 4))
+		self.purchase_airport_var = tk.StringVar()
+		self.purchase_airport_entry = ttk.Entry(purchase_inner, textvariable=self.purchase_airport_var, width=20, font=("Segoe UI", 9))
+		self.purchase_airport_entry.pack(fill=tk.X, pady=(0, 8))
+		
+		# Item name
+		ttk.Label(purchase_inner, text="Item Name:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, pady=(0, 4))
+		self.item_name_var = tk.StringVar()
+		self.item_name_entry = ttk.Entry(purchase_inner, textvariable=self.item_name_var, width=20, font=("Segoe UI", 9))
+		self.item_name_entry.pack(fill=tk.X, pady=(0, 8))
+		
+		# Item cost
+		ttk.Label(purchase_inner, text="Cost ($):", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, pady=(0, 4))
+		self.item_cost_var = tk.StringVar(value="1000")
+		self.item_cost_entry = ttk.Entry(purchase_inner, textvariable=self.item_cost_var, width=20, font=("Segoe UI", 9))
+		self.item_cost_entry.pack(fill=tk.X, pady=(0, 12))
+		
+		# Purchase button
+		btn_purchase_item = ttk.Button(purchase_inner, text="Purchase Custom Item", command=self._on_purchase_custom_item)
+		btn_purchase_item.pack(fill=tk.X, pady=(0, 8))
+		
+		ttk.Label(purchase_inner, text="Note: Requires hangar at airport", font=("Segoe UI", 8), foreground="#666").pack(anchor=tk.W)
+		
+		# Middle: Stored custom items
+		stored_frame = ttk.LabelFrame(custom_items_container, text="Stored Custom Items")
+		stored_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+		
+		# Scrollable frame for stored items
+		stored_canvas_container = ttk.Frame(stored_frame)
+		stored_canvas_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+		
+		stored_scrollbar = ttk.Scrollbar(stored_canvas_container, orient="vertical")
+		stored_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+		
+		self.stored_canvas = tk.Canvas(stored_canvas_container, yscrollcommand=stored_scrollbar.set, bg="#f5f5f5", highlightthickness=0)
+		self.stored_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+		stored_scrollbar.config(command=self.stored_canvas.yview)
+		
+		self.stored_inner_frame = ttk.Frame(self.stored_canvas)
+		self.stored_canvas_window = self.stored_canvas.create_window((0, 0), window=self.stored_inner_frame, anchor="nw")
+		
+		def _configure_stored_canvas(event):
+			self.stored_canvas.configure(scrollregion=self.stored_canvas.bbox("all"))
+			canvas_width = event.width
+			self.stored_canvas.itemconfig(self.stored_canvas_window, width=canvas_width)
+		self.stored_canvas.bind("<Configure>", _configure_stored_canvas)
+		
+		def _on_stored_mousewheel(event):
+			self.stored_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+		self.stored_canvas.bind("<MouseWheel>", _on_stored_mousewheel)
+		
+		# Right: Install custom items
+		install_frame = ttk.LabelFrame(custom_items_container, text="Install Custom Item")
+		install_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+		
+		# Scrollable frame for installable items
+		install_canvas_container = ttk.Frame(install_frame)
+		install_canvas_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+		
+		install_scrollbar = ttk.Scrollbar(install_canvas_container, orient="vertical")
+		install_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+		
+		self.install_canvas = tk.Canvas(install_canvas_container, yscrollcommand=install_scrollbar.set, bg="#f5f5f5", highlightthickness=0)
+		self.install_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+		install_scrollbar.config(command=self.install_canvas.yview)
+		
+		self.install_inner_frame = ttk.Frame(self.install_canvas)
+		self.install_canvas_window = self.install_canvas.create_window((0, 0), window=self.install_inner_frame, anchor="nw")
+		
+		def _configure_install_canvas(event):
+			self.install_canvas.configure(scrollregion=self.install_canvas.bbox("all"))
+			canvas_width = event.width
+			self.install_canvas.itemconfig(self.install_canvas_window, width=canvas_width)
+		self.install_canvas.bind("<Configure>", _configure_install_canvas)
+		
+		def _on_install_mousewheel(event):
+			self.install_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+		self.install_canvas.bind("<MouseWheel>", _on_install_mousewheel)
+		
 		self.bind("<<FrameShown>>", lambda e: self.refresh())
 	
 	def refresh(self):
@@ -3542,6 +3948,7 @@ class AirportServicesFrame(BaseFrame):
 			self.services_canvas.configure(scrollregion=self.services_canvas.bbox("all"))
 			
 			self._update_recent_services()
+			self._refresh_custom_items()
 		except Exception as e:
 			import traceback
 			# Show error but don't crash - display a message
@@ -3580,6 +3987,8 @@ class AirportServicesFrame(BaseFrame):
 					self._update_fuel_cost(fuel_service, "refueling")
 		else:
 			self.location_var.set("Location: -")
+		# Refresh custom items when aircraft selection changes
+		self._refresh_custom_items()
 	
 	def _update_fuel_cost(self, service, service_key):
 		"""Update fuel cost display based on quantity and unit."""
@@ -3759,12 +4168,200 @@ class AirportServicesFrame(BaseFrame):
 					time_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(timestamp))
 					recent_list.append(f"{service_name} ({time_str})")
 			
+			# Add installed custom items
+			from services import list_installed_custom_items
+			installed_items = list_installed_custom_items(selected_ac.get("id"))
+			for item in installed_items:
+				item_name = item.get("name", "Custom Item")
+				recent_list.append(f"Custom Item: '{item_name}' (Installed)")
+			
 			if recent_list:
 				self.recent_var.set("\n".join([f"• {item}" for item in recent_list]))
 			else:
 				self.recent_var.set("No recent services purchased for this aircraft.")
 		except Exception:
 			self.recent_var.set("Error loading recent services.")
+	
+	def _refresh_custom_items(self):
+		"""Refresh the custom items sections (stored and installable)."""
+		# Clear stored items
+		for widget in self.stored_inner_frame.winfo_children():
+			widget.destroy()
+		
+		# Clear installable items
+		for widget in self.install_inner_frame.winfo_children():
+			widget.destroy()
+		
+		try:
+			from services import list_stored_custom_items, list_installed_custom_items
+			
+			# Get selected aircraft from dropdown
+			selected_ac = self._get_selected_aircraft()
+			aircraft_location = None
+			if selected_ac:
+				aircraft_location = (selected_ac.get("location") or "HOME").upper()
+			
+			# Show stored items
+			stored_items = list_stored_custom_items()
+			if not stored_items:
+				ttk.Label(self.stored_inner_frame, text="No custom items stored", font=("Segoe UI", 9), foreground="#666").pack(pady=20)
+			else:
+				for item in stored_items:
+					item_card = ttk.Frame(self.stored_inner_frame, relief=tk.RAISED, borderwidth=1)
+					item_card.pack(fill=tk.X, padx=6, pady=6)
+					
+					# Item info
+					info_frame = ttk.Frame(item_card)
+					info_frame.pack(fill=tk.X, padx=10, pady=8)
+					
+					item_name = item.get("name", "Unnamed Item")
+					item_airport = item.get("airport", "UNKNOWN")
+					item_cost = item.get("cost", 0)
+					
+					ttk.Label(info_frame, text=item_name, font=("Segoe UI", 10, "bold")).pack(anchor=tk.W)
+					ttk.Label(info_frame, text=f"Stored at: {item_airport}", font=("Segoe UI", 9), foreground="#666").pack(anchor=tk.W)
+					ttk.Label(info_frame, text=f"Cost: ${item_cost:,}", font=("Segoe UI", 9), foreground="#666").pack(anchor=tk.W)
+			
+			# Show installed items on selected aircraft - ONLY if aircraft is selected AND has installed items
+			if selected_ac:
+				installed_items = list_installed_custom_items(selected_ac.get("id"))
+				if installed_items:
+					installed_frame = ttk.LabelFrame(self.install_inner_frame, text=f"Installed on {selected_ac.get('id')}")
+					installed_frame.pack(fill=tk.X, padx=6, pady=(10, 6))
+					
+					for item in installed_items:
+						item_card = ttk.Frame(installed_frame, relief=tk.RAISED, borderwidth=1)
+						item_card.pack(fill=tk.X, padx=6, pady=6)
+						
+						info_frame = ttk.Frame(item_card)
+						info_frame.pack(fill=tk.X, padx=10, pady=8)
+						
+						item_id = item.get("item_id")
+						item_name = item.get("name", "Unnamed Item")
+						
+						ttk.Label(info_frame, text=item_name, font=("Segoe UI", 10, "bold")).pack(anchor=tk.W)
+						ttk.Label(info_frame, text="✓ Installed (unique to this aircraft)", font=("Segoe UI", 8), foreground="#0a7f2e").pack(anchor=tk.W)
+						
+						btn_frame = ttk.Frame(item_card)
+						btn_frame.pack(fill=tk.X, padx=10, pady=(0, 8))
+						
+						btn_uninstall = ttk.Button(btn_frame, text="Uninstall", 
+							command=lambda iid=item_id: self._on_uninstall_custom_item(iid))
+						btn_uninstall.pack(side=tk.LEFT)
+			
+			# Show installable items (stored at same airport as selected aircraft)
+			if selected_ac and aircraft_location:
+				installable_items = list_stored_custom_items(aircraft_location)
+				if not installable_items:
+					# Only show "no items" message if there are also no installed items
+					if not (selected_ac and list_installed_custom_items(selected_ac.get("id"))):
+						ttk.Label(self.install_inner_frame, text=f"No items stored at {aircraft_location}", font=("Segoe UI", 9), foreground="#666").pack(pady=20)
+				else:
+					ttk.Label(self.install_inner_frame, text=f"Items at {aircraft_location}:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, padx=10, pady=(10, 4))
+					
+					for item in installable_items:
+						# Double-check that item is not installed (safety check)
+						if item.get("installed_on"):
+							continue  # Skip items that are already installed
+						
+						item_card = ttk.Frame(self.install_inner_frame, relief=tk.RAISED, borderwidth=1)
+						item_card.pack(fill=tk.X, padx=6, pady=6)
+						
+						# Item info
+						info_frame = ttk.Frame(item_card)
+						info_frame.pack(fill=tk.X, padx=10, pady=8)
+						
+						item_id = item.get("item_id")
+						item_name = item.get("name", "Unnamed Item")
+						
+						ttk.Label(info_frame, text=item_name, font=("Segoe UI", 10, "bold")).pack(anchor=tk.W)
+						ttk.Label(info_frame, text="Available for installation", font=("Segoe UI", 8), foreground="#0a7f2e").pack(anchor=tk.W)
+						
+						# Install button
+						btn_frame = ttk.Frame(item_card)
+						btn_frame.pack(fill=tk.X, padx=10, pady=(0, 8))
+						
+						btn_install = ttk.Button(btn_frame, text="Install on Aircraft", 
+							command=lambda iid=item_id: self._on_install_custom_item(iid))
+						btn_install.pack(side=tk.LEFT)
+			elif not selected_ac:
+				ttk.Label(self.install_inner_frame, text="Select an aircraft to see installable items", font=("Segoe UI", 9), foreground="#666").pack(pady=20)
+			
+			# Update canvas scroll regions
+			self.stored_inner_frame.update_idletasks()
+			self.stored_canvas.configure(scrollregion=self.stored_canvas.bbox("all"))
+			
+			self.install_inner_frame.update_idletasks()
+			self.install_canvas.configure(scrollregion=self.install_canvas.bbox("all"))
+		except Exception as e:
+			import traceback
+			ttk.Label(self.stored_inner_frame, text=f"Error: {str(e)}", font=("Segoe UI", 9), foreground="#b00020").pack(pady=20)
+			traceback.print_exc()
+	
+	def _on_purchase_custom_item(self):
+		"""Handle purchasing a custom item."""
+		try:
+			airport = self.purchase_airport_var.get().strip().upper()
+			item_name = self.item_name_var.get().strip()
+			cost_str = self.item_cost_var.get().strip()
+			
+			if not airport:
+				messagebox.showwarning("Purchase", "Please enter an airport code.")
+				return
+			if not item_name:
+				messagebox.showwarning("Purchase", "Please enter an item name.")
+				return
+			
+			try:
+				cost = int(float(cost_str))
+			except ValueError:
+				messagebox.showerror("Purchase", "Cost must be a valid number.")
+				return
+			
+			if cost <= 0:
+				messagebox.showerror("Purchase", "Cost must be greater than 0.")
+				return
+			
+			from services import purchase_custom_item
+			item_id = purchase_custom_item(airport, item_name, cost)
+			messagebox.showinfo("Purchase", f"Custom item '{item_name}' purchased and stored at {airport}.")
+			
+			# Clear form
+			self.purchase_airport_var.set("")
+			self.item_name_var.set("")
+			self.item_cost_var.set("1000")
+			
+			# Refresh display
+			self._refresh_custom_items()
+		except Exception as exc:
+			messagebox.showerror("Purchase", str(exc))
+	
+	def _on_install_custom_item(self, item_id: str):
+		"""Handle installing a custom item on the selected aircraft."""
+		selected_ac = self._get_selected_aircraft()
+		if not selected_ac:
+			messagebox.showwarning("Install", "Please select an aircraft first.")
+			return
+		
+		try:
+			from services import install_custom_item
+			install_custom_item(item_id, selected_ac.get("id"))
+			messagebox.showinfo("Install", f"Custom item installed on {selected_ac.get('id')}.")
+			self._refresh_custom_items()
+			self._update_recent_services()
+		except Exception as exc:
+			messagebox.showerror("Install", str(exc))
+	
+	def _on_uninstall_custom_item(self, item_id: str):
+		"""Handle uninstalling a custom item from the selected aircraft."""
+		try:
+			from services import uninstall_custom_item
+			uninstall_custom_item(item_id)
+			messagebox.showinfo("Uninstall", "Custom item uninstalled and returned to storage.")
+			self._refresh_custom_items()
+			self._update_recent_services()
+		except Exception as exc:
+			messagebox.showerror("Uninstall", str(exc))
 
 
 def ensure_storage_seed():

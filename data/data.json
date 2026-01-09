@@ -1,22 +1,22 @@
 {
-  "cash": 4992850000,
+  "cash": 4402790,
   "company": {
-    "name": "fdhgj",
+    "name": "hg",
     "reputation": 0.0
   },
   "fleet": [
     {
-      "id": "ac_2cf99795",
-      "type_code": "B350",
-      "name": "Beechcraft King Air 350",
-      "purchase_price": 1850000,
+      "id": "ac_70f24950",
+      "type_code": "C90B",
+      "name": "Beechcraft King Air 90",
+      "purchase_price": 600000,
       "total_hours": 0.0,
-      "hours_since_maintenance": 0.0,
+      "hours_since_maintenance": 1.5,
       "maintenance_due_hours": 300.0,
-      "hours_since_a_check": 0.0,
-      "hours_since_b_check": 0.0,
-      "hours_since_c_check": 0.0,
-      "location": "HOME",
+      "hours_since_a_check": 1.5,
+      "hours_since_b_check": 1.5,
+      "hours_since_c_check": 1.5,
+      "location": "DEST",
       "reliability": 1.0,
       "grounded": false,
       "cabin_layout": [
@@ -34,92 +34,15 @@
           "row": 3,
           "seat_type": "SLIM",
           "seats": 2
-        },
-        {
-          "row": 4,
-          "seat_type": "SLIM",
-          "seats": 2
-        }
-      ],
-      "is_leased": false,
-      "snags": []
-    },
-    {
-      "id": "ac_a1d88f08",
-      "type_code": "E55P",
-      "name": "Embraer Phenom 300",
-      "purchase_price": 5000000,
-      "total_hours": 0.0,
-      "hours_since_maintenance": 0.0,
-      "maintenance_due_hours": 300.0,
-      "hours_since_a_check": 0.0,
-      "hours_since_b_check": 0.0,
-      "hours_since_c_check": 0.0,
-      "location": "HOME",
-      "reliability": 1.0,
-      "grounded": false,
-      "cabin_layout": [
-        {
-          "row": 1,
-          "seat_type": "SLIM",
-          "seats": 2
-        },
-        {
-          "row": 2,
-          "seat_type": "SLIM",
-          "seats": 2
-        },
-        {
-          "row": 3,
-          "seat_type": "SLIM",
-          "seats": 2
-        },
-        {
-          "row": 4,
-          "seat_type": "SLIM",
-          "seats": 2
-        }
-      ],
-      "is_leased": false,
-      "snags": []
-    },
-    {
-      "id": "ac_6205d5fe",
-      "type_code": "C337",
-      "name": "Cessna 337 Skymaster",
-      "purchase_price": 300000,
-      "total_hours": 0.0,
-      "hours_since_maintenance": 0.0,
-      "maintenance_due_hours": 300.0,
-      "hours_since_a_check": 0.0,
-      "hours_since_b_check": 0.0,
-      "hours_since_c_check": 0.0,
-      "location": "HOME",
-      "reliability": 1.0,
-      "grounded": false,
-      "cabin_layout": [
-        {
-          "row": 1,
-          "seat_type": "SLIM",
-          "seats": 2
-        },
-        {
-          "row": 2,
-          "seat_type": "SLIM",
-          "seats": 2
-        },
-        {
-          "row": 3,
-          "seat_type": "SLIM",
-          "seats": 1
         }
       ],
       "is_leased": false,
       "snags": [],
-      "oil_level": 24.0,
-      "oil_capacity": 24.0,
+      "oil_level": 17.835,
+      "oil_capacity": 18.0,
       "oil_minimum": 7.0,
-      "hours_since_oil_refill": 0.0
+      "hours_since_oil_refill": 1.5,
+      "hours_since_oil_change": 1.5
     }
   ],
   "loans": [],
@@ -128,22 +51,16 @@
   "active_flights": [],
   "ledger": [
     {
-      "ts": 1767918790,
+      "ts": 1767974367,
       "category": "purchase",
-      "amount": -1850000,
-      "note": "Buy Beechcraft King Air 350 (B350)"
+      "amount": -600000,
+      "note": "Buy Beechcraft King Air 90 (C90B)"
     },
     {
-      "ts": 1767918795,
-      "category": "purchase",
-      "amount": -5000000,
-      "note": "Buy Embraer Phenom 300 (E55P)"
-    },
-    {
-      "ts": 1767918798,
-      "category": "purchase",
-      "amount": -300000,
-      "note": "Buy Cessna 337 Skymaster (C337)"
+      "ts": 1767974402,
+      "category": "flight",
+      "amount": 2790,
+      "note": "HOME-DEST net; penalties: No owned parking at DEST; overnight fee may apply; rep bonus: $-120"
     }
   ],
   "aircraft_config": {},
@@ -892,7 +809,66 @@
       "cost": 68,
       "passengers": 10,
       "capacity": 10
+    },
+    {
+      "timestamp": 1767920988,
+      "route": "HOME-DEST",
+      "revenue": 600,
+      "cost": 30,
+      "passengers": 3,
+      "capacity": 5
+    },
+    {
+      "timestamp": 1767968774,
+      "route": "HOME-DEST",
+      "revenue": 1600,
+      "cost": 232,
+      "passengers": 8,
+      "capacity": 8
+    },
+    {
+      "timestamp": 1767968777,
+      "route": "HOME-DEST",
+      "revenue": 1600,
+      "cost": 232,
+      "passengers": 8,
+      "capacity": 8
+    },
+    {
+      "timestamp": 1767968795,
+      "route": "HOME-DEST",
+      "revenue": 1600,
+      "cost": 232,
+      "passengers": 8,
+      "capacity": 8
+    },
+    {
+      "timestamp": 1767974162,
+      "route": "HOME-DEST",
+      "revenue": 2000,
+      "cost": 210,
+      "passengers": 10,
+      "capacity": 19
+    },
+    {
+      "timestamp": 1767974402,
+      "route": "HOME-DEST",
+      "revenue": 1200,
+      "cost": 150,
+      "passengers": 6,
+      "capacity": 6
     }
   ],
-  "last_daily_tick_day": 20462
+  "last_daily_tick_day": 20462,
+  "custom_items": [
+    {
+      "item_id": "custom_item_cce6ad46",
+      "name": "Carb",
+      "cost": 1000,
+      "airport": "HOME",
+      "purchase_date": 20462,
+      "purchase_timestamp": 1767922730,
+      "installed_on": null
+    }
+  ]
 }
